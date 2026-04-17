@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { AppState, AudioDevice, SummaryResult, AppConfig, TranscriptionSegment } from '../types';
 
 interface AppStore extends AppState {
@@ -36,33 +37,45 @@ const initialState: AppState = {
   notification: null,
 };
 
-export const useAppStore = create<AppStore>((set) => ({
-  ...initialState,
+export const useAppStore = create<AppStore>()(
+  persist(
+    (set) => ({
+      ...initialState,
 
-  setIsRecording: (isRecording) => set({ isRecording }),
-  setRecordingDuration: (recordingDuration) => set({ recordingDuration }),
-  setAudioDevices: (audioDevices) => set({ audioDevices }),
-  setSelectedDevice: (selectedDevice) => set({ selectedDevice }),
-  setAudioPath: (audioPath) => set({ audioPath }),
-  setTranscript: (transcript) => set({ transcript }),
-  setTranscriptSegments: (transcriptSegments) => set({ transcriptSegments }),
-  setIsTranscribing: (isTranscribing) => set({ isTranscribing }),
-  setTranscriptionProgress: (transcriptionProgress) => set({ transcriptionProgress }),
-  setSummary: (summary) => set({ summary }),
-  setIsSummarizing: (isSummarizing) => set({ isSummarizing }),
-  setConfig: (config) => set({ config }),
-  setShowSettings: (showSettings) => set({ showSettings }),
-  setNotification: (notification) => set({ notification }),
+      setIsRecording: (isRecording) => set({ isRecording }),
+      setRecordingDuration: (recordingDuration) => set({ recordingDuration }),
+      setAudioDevices: (audioDevices) => set({ audioDevices }),
+      setSelectedDevice: (selectedDevice) => set({ selectedDevice }),
+      setAudioPath: (audioPath) => set({ audioPath }),
+      setTranscript: (transcript) => set({ transcript }),
+      setTranscriptSegments: (transcriptSegments) => set({ transcriptSegments }),
+      setIsTranscribing: (isTranscribing) => set({ isTranscribing }),
+      setTranscriptionProgress: (transcriptionProgress) => set({ transcriptionProgress }),
+      setSummary: (summary) => set({ summary }),
+      setIsSummarizing: (isSummarizing) => set({ isSummarizing }),
+      setConfig: (config) => set({ config }),
+      setShowSettings: (showSettings) => set({ showSettings }),
+      setNotification: (notification) => set({ notification }),
 
-  resetSession: () => set({
-    isRecording: false,
-    recordingDuration: 0,
-    audioPath: null,
-    transcript: '',
-    transcriptSegments: [],
-    isTranscribing: false,
-    transcriptionProgress: 0,
-    summary: null,
-    isSummarizing: false,
-  }),
-}));
+      resetSession: () => set({
+        isRecording: false,
+        recordingDuration: 0,
+        audioPath: null,
+        transcript: '',
+        transcriptSegments: [],
+        isTranscribing: false,
+        transcriptionProgress: 0,
+        summary: null,
+        isSummarizing: false,
+      }),
+    }),
+    {
+      name: 'meeting-recorder-storage',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        selectedDevice: state.selectedDevice,
+        config: state.config,
+      }),
+    }
+  )
+);

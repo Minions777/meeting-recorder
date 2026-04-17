@@ -5,6 +5,7 @@ import { TranscriptView } from './components/TranscriptView';
 import { SummaryPanel } from './components/SummaryPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { useAppStore } from './hooks/useAppStore';
+import { AudioDevice, AppConfig } from './types';
 import './styles/global.css';
 
 function App() {
@@ -21,9 +22,9 @@ function App() {
   useEffect(() => {
     const init = async () => {
       try {
-        const devices = await invoke<any[]>('get_audio_devices');
+        const devices = await invoke<AudioDevice[]>('get_audio_devices');
         setAudioDevices(devices);
-        const config = await invoke<any>('load_config');
+        const config = await invoke<AppConfig>('load_config');
         setConfig(config);
       } catch (error) {
         console.error('初始化失败:', error);

@@ -18,10 +18,10 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     ai_timeout: config?.ai_service?.timeout_seconds || 60,
     ai_use_proxy: config?.ai_service?.use_proxy || false,
     ai_proxy_url: config?.ai_service?.proxy_url || '',
-    whisper_type: 'openai',
-    whisper_api_base: 'https://api.openai.com/v1',
-    whisper_api_key: '',
-    whisper_model: 'whisper-1',
+    whisper_type: config?.whisper_config?.type || 'openai',
+    whisper_api_base: config?.whisper_config?.api_base || 'https://api.openai.com/v1',
+    whisper_api_key: config?.whisper_config?.api_key || '',
+    whisper_model: config?.whisper_config?.model || 'whisper-1',
     theme: config?.general_config?.theme || 'light',
     auto_copy_summary: config?.general_config?.auto_copy_summary || false,
     notification_enabled: config?.general_config?.notification_enabled ?? true,
@@ -102,38 +102,16 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     setTestResult(null);
 
     try {
-      const tempConfig = {
-        ai_service: {
-          provider: formData.ai_provider,
-          api_base: formData.ai_api_base,
-          api_key: formData.ai_api_key,
-          model: formData.ai_model,
-          timeout_seconds: formData.ai_timeout,
-          use_proxy: formData.ai_use_proxy,
-          proxy_url: formData.ai_proxy_url,
-        },
-        whisper_config: {
-          type: formData.whisper_type,
-          api_base: formData.whisper_api_base,
-          api_key: formData.whisper_api_key,
-          model: formData.whisper_model,
-        },
-        recording_config: {
-          default_sample_rate: 44100,
-          default_channels: 1,
-          auto_noise_reduction: true,
-          enable_vad: true,
-        },
-        general_config: {
-          language: 'zh-CN',
-          theme: formData.theme,
-          auto_copy_summary: false,
-          notification_enabled: true,
-        },
-      };
-
-      await invoke('save_config', { config: tempConfig });
-      const result = await invoke<string>('test_connection');
+      // Test using current form data without saving to config
+      const result = await invoke<string>('test_connection', {
+        provider: formData.ai_provider,
+        apiBase: formData.ai_api_base,
+        apiKey: formData.ai_api_key,
+        model: formData.ai_model,
+        timeoutSeconds: formData.ai_timeout,
+        useProxy: formData.ai_use_proxy,
+        proxyUrl: formData.ai_proxy_url,
+      });
       setTestResult({ success: true, message: result });
     } catch (error) {
       setTestResult({ success: false, message: String(error) });

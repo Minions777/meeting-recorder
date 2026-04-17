@@ -280,37 +280,84 @@ async fn call_anthropic_api(
 
 #[tauri::command]
 pub async fn test_connection(
-    state: tauri::State<'_, crate::AppState>,
+    provider: String,
+    api_base: String,
+    api_key: String,
+    model: String,
+    _timeout_seconds: u64,
+    use_proxy: bool,
+    proxy_url: String,
 ) -> Result<String, String> {
     info!("测试 AI 服务连接...");
-    
-    let config = state.config.lock().unwrap().clone();
-    
-    let ai_config = match &config.ai_service {
-        Some(cfg) => cfg,
-        None => return Err("请先配置 AI 服务".to_string()),
-    };
-    
+
+    if api_key.is_empty() {
+        return Err("请先输入 API Key".to_string());
+    }
+
     let messages = vec![
         AIChatMessage {
             role: "user".to_string(),
             content: "你好，这是一个连接测试。请回复 '连接成功'。".to_string(),
         },
     ];
-    
-    let endpoint = format!("{}/chat/completions", ai_config.api_base.trim_end_matches('/'));
-    
-    let response = call_chat_api(
-        &endpoint,
-        &ai_config.api_key,
-        &ai_config.model,
-        messages,
-        Some(100),
-    ).await?;
-    
-    info!("连接测试成功: {}", response);
-    
-    Ok(response)
+
+    let endpoint = format!("/chat/completions", api_base.trim_end_matches('/'));
+
+    // Handle proxy if needed
+    let client = if use_proxy && !proxy_url.is_empty() {
+        let proxy = reqwest::Proxy::https(&proxy_url)
+            .map_err(|e| format!("代理配置错误: {}", e))?;
+        Client::builder().proxy(proxy).build()
+    } else {
+        Client::builder().build()
+    }
+    .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+    let request_body = serde_json::json!({
+        "model": model,
+        "messages": messages.iter().map(|m| {
+            serde_json::json!({
+                "role": m.role,
+                "content": m.content
+            })
+        }).collect::<Vec<_>>(),
+        "temperature": 0.3,
+        "max_tokens": 100,
+    });
+
+    let full_url = if api_base.starts_with("http") {
+        format!("{}{}", api_base.trim_end_matches('/'), endpoint)
+    } else {
+        format!("https://{}{}", api_base.trim_end_matches('/'), endpoint)
+    };
+
+    let response = client
+        .post(&full_url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|e| format!("API 请求失败: {}", e))?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        error!("AI API 返回错误: {}", error_text);
+        return Err(format!("AI 服务返回错误: {}", error_text));
+    }
+
+    let result: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("解析响应失败: {}", e))?;
+
+    let content = result["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or("无法从响应中提取内容")?;
+
+    info!("连接测试成功: {}", content);
+
+    Ok(content.to_string())
 }
 
 #[tauri::command]

@@ -12,6 +12,8 @@ use tauri::State;
 use crate::AppState;
 
 static RECORDING_FLAG: AtomicBool = AtomicBool::new(false);
+static RECORDED_SAMPLES: Mutex<Vec<i16>> = Mutex::new(Vec::new());
+static RECORDING_START_TIME: Mutex<Option<u64>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioDevice {
@@ -136,19 +138,19 @@ pub async fn start_recording(
         bits_per_sample: 16,
         sample_format: SampleFormat::Int,
     };
-    
-    let recorded_samples = Mutex::new(Vec::new());
-    let recorded_samples_clone = recorded_samples.clone();
-    
+
+    // Clear and prepare global samples buffer
+    RECORDED_SAMPLES.lock().unwrap().clear();
+
     let err_fn = |err| error!("音频流错误: {}", err);
-    
+
     let stream = match supported_config.sample_format() {
         cpal::SampleFormat::F32 => {
             device.build_input_stream(
                 &supported_config.into(),
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     if RECORDING_FLAG.load(Ordering::SeqCst) {
-                        let mut samples = recorded_samples_clone.lock().unwrap();
+                        let mut samples = RECORDED_SAMPLES.lock().unwrap();
                         for &sample in data {
                             let s = (sample * 32767.0).max(-32768.0).min(32767.0) as i16;
                             samples.push(s);
@@ -164,7 +166,7 @@ pub async fn start_recording(
                 &supported_config.into(),
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
                     if RECORDING_FLAG.load(Ordering::SeqCst) {
-                        let mut samples = recorded_samples_clone.lock().unwrap();
+                        let mut samples = RECORDED_SAMPLES.lock().unwrap();
                         samples.extend_from_slice(data);
                     }
                 },
@@ -174,14 +176,20 @@ pub async fn start_recording(
         }
         _ => return Err("不支持的音频格式".to_string()),
     };
-    
+
     stream.play().map_err(|e| format!("无法开始录音: {}", e))?;
     RECORDING_FLAG.store(true, Ordering::SeqCst);
-    
+
+    // Record start time
+    *RECORDING_START_TIME.lock().unwrap() = Some(std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs());
+
     std::mem::forget(stream);
-    
+
     info!("录音已开始，保存到: {}", audio_path_str);
-    
+
     Ok(audio_path_str)
 }
 
@@ -193,25 +201,66 @@ pub async fn stop_recording(
     if !RECORDING_FLAG.load(Ordering::SeqCst) {
         return Err("当前没有在录音".to_string());
     }
-    
+
     info!("停止录音");
     RECORDING_FLAG.store(false, Ordering::SeqCst);
-    
+
     tokio::time::sleep(Duration::from_millis(100)).await;
-    
+
     let audio_path = state.current_audio_path.lock().unwrap().clone();
-    
+
+    // Calculate actual duration
+    let duration_seconds = RECORDING_START_TIME.lock().unwrap()
+        .map(|start| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            now.saturating_sub(start)
+        })
+        .unwrap_or(0);
+
+    // Write samples to WAV file
+    if let Some(ref path) = audio_path {
+        let samples = RECORDED_SAMPLES.lock().unwrap();
+        if !samples.is_empty() {
+            let spec = WavSpec {
+                channels: 1,
+                sample_rate: 44100,
+                bits_per_sample: 16,
+                sample_format: SampleFormat::Int,
+            };
+
+            let path_buf = std::path::PathBuf::from(path);
+            let file = File::create(&path_buf)
+                .map_err(|e| format!("无法创建音频文件: {}", e))?;
+            let writer = BufWriter::new(file);
+
+            let mut wav_writer = WavWriter::new(writer, spec)
+                .map_err(|e| format!("无法创建WAV写入器: {}", e))?;
+
+            for &sample in samples.iter() {
+                wav_writer.write_sample(sample)
+                    .map_err(|e| format!("写入样本失败: {}", e))?;
+            }
+
+            wav_writer.finalize()
+                .map_err(|e| format!("无法完成WAV文件: {}", e))?;
+
+            info!("录音文件已保存: {} ({} 字节, {} 秒)", path, samples.len() * 2, duration_seconds);
+        }
+    }
+
+    // Clear recording start time
+    *RECORDING_START_TIME.lock().unwrap() = None;
+
     let status = RecordingStatus {
         is_recording: false,
-        duration_seconds: 0,
+        duration_seconds,
         audio_path: audio_path.clone(),
         device_name: None,
     };
-    
-    if let Some(path) = audio_path {
-        info!("录音文件已保存: {}", path);
-    }
-    
+
     Ok(status)
 }
 

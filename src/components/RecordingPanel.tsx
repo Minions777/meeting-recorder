@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../hooks/useAppStore';
+import { RecordingStatus } from '../types';
 
 export function RecordingPanel() {
   const {
@@ -63,10 +64,10 @@ export function RecordingPanel() {
 
   const handleStopRecording = async () => {
     try {
-      const status = await invoke<any>('stop_recording');
+      const status = await invoke<RecordingStatus>('stop_recording');
       setIsRecording(false);
       setAudioPath(status.audio_path);
-      
+
       if (status.audio_path) {
         handleTranscribe(status.audio_path);
       }
@@ -78,15 +79,15 @@ export function RecordingPanel() {
 
   const handleTranscribe = async (audioPath: string) => {
     if (!audioPath) return;
-    
+
     setIsTranscribing(true);
     setTranscript('');
-    
+
     try {
-      const result = await invoke<any>('transcribe_audio_file', {
+      const result = await invoke<{ text: string }>('transcribe_audio_file', {
         audioPath,
       });
-      
+
       setTranscript(result.text);
     } catch (error) {
       console.error('转写失败:', error);
